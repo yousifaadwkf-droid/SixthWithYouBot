@@ -1,6 +1,6 @@
 import os
 
-TOKEN = os.getenv("8389405270:AAHYTA46DfY-OsFV4LoFgDpf-tZ32jOeEdc")
+TOKEN = os.getenv("8389405270:AAGdZilw4rEbenwoNFxbqHR3uyifYm9uZ2s")
 
 OWNER_ID = int(os.getenv("OWNER_ID", "606221907"))
 
