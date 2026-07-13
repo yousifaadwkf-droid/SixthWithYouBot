@@ -11,7 +11,9 @@ import handlers
 
 # إنشاء الجداول
 database.create_tables()
-print("TOKEN LOADED")
+
+print("TOKEN =", repr(TOKEN))
+
 # إنشاء التطبيق
 app = Application.builder().token(TOKEN).build()
 
