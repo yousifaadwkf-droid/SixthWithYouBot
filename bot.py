@@ -15,7 +15,7 @@ database.create_tables()
 print("TOKEN =", repr(TOKEN))
 
 # إنشاء التطبيق
-app = Application.builder().token(8389405270:AAGSAvd7eBulhUrehpxmkCdT9iVzePTGQHs).build()
+app = Application.builder().token("8389405270:AAGSAvd7eBulhUrehpxmkCdT9iVzePTGQHs").build()
 
 # أمر /start
 app.add_handler(
