@@ -1,4 +1,5 @@
-import html
+[8/4/2026 11:54 PM] يوسف أسعد: import html
+import re
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import ADMINS, OWNER_ID
@@ -19,7 +20,7 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
 
-    # تجاهل الرسائل القادمة من المشرفين أنفسهم
+    # تجاهل رسائل المشرفين أنفسهم
     if user.id in ADMINS or user.id == OWNER_ID:
         return
 
@@ -28,12 +29,14 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         database.save_student(user.id, user.username, user.first_name)
         database.create_ticket(user.id)
     except Exception as db_err:
-        print(f"⚠️ Database error: {db_err}")
+        print(f"⚠️ DB Error (save_student): {db_err}")
 
-    # حماية النص من أخطاء التنسيق باستخدام HTML
     student_name = html.escape(user.first_name or "طالب")
     student_username = f"@{user.username}" if user.username else "لا يوجد معرف"
-    raw_text = update.message.text if update.message.text else "[وسائط / بصمة صوتية]"
+
+    # قراءة النص أو التعليق المرفق بالملف (Caption)
+    text_content = update.message.text or update.message.caption
+    raw_text = text_content if text_content else "[ملف / وسائط / بصمة صوتية]"
     msg_text = html.escape(raw_text)
 
     text = (
@@ -41,20 +44,32 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 <b>الاسم:</b> {student_name}\n"
         f"🏷️ <b>المعرف:</b> {student_username}\n"
         f"🆔 <b>ID:</b> <code>{user.id}</code>\n\n"
-        f"💬 <b>الرسالة:</b>\n{msg_text}"
+        f"💬 <b>الرسالة / الوصف:</b>\n{msg_text}"
+    )
+
+    # التحقق مما إذا كانت الرسالة تحتوي على ملفات أو وسائط
+    has_attachment = bool(
+        update.message.document or 
+        update.message.photo or 
+        update.message.voice or 
+        update.message.video or 
+        update.message.audio or 
+        update.message.sticker
     )
 
     sent_success = False
     for admin in ADMINS:
         try:
+            # 1. إرسال معلومات الطالب
             sent_info = await context.bot.send_message(chat_id=admin, text=text, parse_mode="HTML")
+            
             try:
                 database.save_message(sent_info.message_id, admin, user.id)
-            except Exception:
-                pass
+            except Exception as db_err:
+                print(f"⚠️ DB Error (save_message): {db_err}")
 
-            # إرسال نسخة من الوسائط أو البصمة الصوتية إن وجدت
-            if not update.message.text:
+            # 2. إرسال نسخة من الملف أو الوسائط إلى المشرف
+            if has_attachment or not update.message.text:
                 sent_copy = await context.bot.copy_message(
                     chat_id=admin,
                     from_chat_id=user.id,
@@ -80,17 +95,34 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not update.message.reply_to_message:
+        await update.message.reply_text("⚠️ يرجى استخدام خاصية (الرد / Reply) على رسالة الطالب.")
         return
 
-    replied_msg_id = update.message.reply_to_message.message_id
-    student_id = database.get_student(replied_msg_id)
+    replied_msg = update.message.reply_to_message
+    student_id = None
+
+    # 1. البحث عن الآيدي من قاعدة البيانات
+    try:
+        student_id = database.get_student(replied_msg.message_id)
+    except Exception as db_err:
+        print(f"⚠️ DB Error (get_student): {db_err}")
+
+    # 2. البحث عن الآيدي كبديل من نص الرسالة
+    if not student_id and replied_msg.text:
+        match = re.search(r"<code>(\d+)</code>", replied_msg.text) or re.search(r"ID:\s*(\d+)", replied_msg.text)
+        if match:
+            student_id = int(match.group(1))
 
     if not student_id:
-        await update.message.reply_text("❌ تعذر العثور على بيانات هذا الطالب.")
+        await update.message.reply_text("❌ تعذر تحديد آيدي الطالب. تأكد من أنك ترد على الرسالة التي تحوي معلومات الطالب.")
         return
 
     try:
-        await context.bot.send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
+        # إرسال الترويسة
+        await context.bot.
+[8/4/2026 11:54 PM] يوسف أسعد: send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
+        
+        # نسخ رد الأدمن بالكامل للطالب (سواء كان ملفاً، نصاً، صورة، أو بصمة صوتية)
         await context.bot.copy_message(
             chat_id=student_id,
             from_chat_id=user.id,
@@ -98,8 +130,11 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         admin_name = f"@{user.username}" if user.username else user.first_name
-        database.answer_ticket(student_id, admin_name)
+        try:
+            database.answer_ticket(student_id, admin_name)
+        except Exception:
+            pass
 
-        await update.message.reply_text("✅ تم إرسال الرد إلى الطالب بنجاح.")
+        await update.message.reply_text("✅ تم إرسال الرد / الملف إلى الطالب بنجاح.")
     except Exception as e:
         await update.message.reply_text(f"❌ فشل إرسال الرد للطالب: {e}")
