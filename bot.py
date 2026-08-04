@@ -3,7 +3,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import config
 import handlers
 
-# إعداد السجلات
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -17,13 +16,12 @@ def main():
 
     app = Application.builder().token(config.TOKEN).build()
 
-    # ربط المعالجات الجديدة من ملف handlers.py
     app.add_handler(CommandHandler("start", handlers.start))
     
-    # الرد التلقائي من أدمن عبر عمل Reply على الرسالة (بما فيها الصوت والوسائط)
+    # معالج الردود (يستقبل أي Reply ويتحقق من صلاحية الأدمن داخلياً)
     app.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, handlers.admin_reply))
     
-    # استقبال رسائل الطلاب (نصوص، صور، بصمات صوتية)
+    # معالج رسائل الطلاب
     app.add_handler(MessageHandler(~filters.COMMAND & filters.ALL, handlers.student_message))
 
     print(f"✅ {config.BOT_NAME} is running successfully...")

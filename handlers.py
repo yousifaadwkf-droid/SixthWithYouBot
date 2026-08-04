@@ -1,4 +1,4 @@
-[8/4/2026 11:54 PM] يوسف أسعد: import html
+[8/5/2026 12:01 AM] يوسف أسعد: import html
 import re
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -34,7 +34,6 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     student_name = html.escape(user.first_name or "طالب")
     student_username = f"@{user.username}" if user.username else "لا يوجد معرف"
 
-    # قراءة النص أو التعليق المرفق بالملف (Caption)
     text_content = update.message.text or update.message.caption
     raw_text = text_content if text_content else "[ملف / وسائط / بصمة صوتية]"
     msg_text = html.escape(raw_text)
@@ -47,7 +46,6 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💬 <b>الرسالة / الوصف:</b>\n{msg_text}"
     )
 
-    # التحقق مما إذا كانت الرسالة تحتوي على ملفات أو وسائط
     has_attachment = bool(
         update.message.document or 
         update.message.photo or 
@@ -60,7 +58,7 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_success = False
     for admin in ADMINS:
         try:
-            # 1. إرسال معلومات الطالب
+            # إرسال بطاقة معلومات الطالب
             sent_info = await context.bot.send_message(chat_id=admin, text=text, parse_mode="HTML")
             
             try:
@@ -68,7 +66,7 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as db_err:
                 print(f"⚠️ DB Error (save_message): {db_err}")
 
-            # 2. إرسال نسخة من الملف أو الوسائط إلى المشرف
+            # إرسال نسخة من الملف أو البصمة إذا وجدت
             if has_attachment or not update.message.text:
                 sent_copy = await context.bot.copy_message(
                     chat_id=admin,
@@ -91,38 +89,40 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
+    # التأكد من أن مرسل الرد هو أدمن
     if user.id not in ADMINS and user.id != OWNER_ID:
         return
 
     if not update.message.reply_to_message:
-        await update.message.reply_text("⚠️ يرجى استخدام خاصية (الرد / Reply) على رسالة الطالب.")
+        await update.message.reply_text("⚠️ يرجى عمل رد (Reply) على كارت معلومات الطالب الذي يحتوي على الـ ID.")
         return
 
     replied_msg = update.message.reply_to_message
     student_id = None
 
-    # 1. البحث عن الآيدي من قاعدة البيانات
+    # 1. البحث في قاعدة البيانات أولاً
     try:
         student_id = database.get_student(replied_msg.message_id)
     except Exception as db_err:
         print(f"⚠️ DB Error (get_student): {db_err}")
 
-    # 2. البحث عن الآيدي كبديل من نص الرسالة
-    if not student_id and replied_msg.text:
-        match = re.search(r"<code>(\d+)</code>", replied_msg.text) or re.search(r"ID:\s*(\d+)", replied_msg.text)
+    # 2. استخراج الـ ID من نص الرسالة التي تم الرد عليها
+    target_text = replied_msg.text or replied_msg.caption or ""
+    if not student_id and target_text:
+        # البحث عن أي رقم آيدي مكون من 6 إلى 12 خانة
+        match = re.search(r"ID[^\d]*(\d{6,12})", target_text, re.IGNORECASE) or re.search(r"(\d{7,12})", target_text)
         if match:
             student_id = int(match.group(1))
 
     if not student_id:
-        await update.message.reply_text("❌ تعذر تحديد آيدي الطالب. تأكد من أنك ترد على الرسالة التي تحوي معلومات الطالب.")
+        await update.message.reply_text("❌ تعذر تحديد ID الطالب. يرجى التأكد من عمل Reply على (بطاقة معلومات الطالب) التي تحتوي على الاسم والـ ID.")
         return
 
     try:
-        # إرسال الترويسة
-        await context.bot.
-[8/4/2026 11:54 PM] يوسف أسعد: send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
+[8/5/2026 12:01 AM] يوسف أسعد: # إرسال الترويسة للطالب
+        await context.bot.send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
         
-        # نسخ رد الأدمن بالكامل للطالب (سواء كان ملفاً، نصاً، صورة، أو بصمة صوتية)
+        # نسخ الرد (نص، بصمة، أو ملف) إلى الطالب
         await context.bot.copy_message(
             chat_id=student_id,
             from_chat_id=user.id,
@@ -135,6 +135,6 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        await update.message.reply_text("✅ تم إرسال الرد / الملف إلى الطالب بنجاح.")
+        await update.message.reply_text("✅ تم إرسال الرد إلى الطالب بنجاح.")
     except Exception as e:
-        await update.message.reply_text(f"❌ فشل إرسال الرد للطالب: {e}")
+        await update.message.reply_text(f"❌ فشل إرسال الرد للطالب (قد يكون الطالب قام بحظر البوت): {e}")
