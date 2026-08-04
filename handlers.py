@@ -1,4 +1,4 @@
-[8/5/2026 12:01 AM] يوسف أسعد: import html
+[8/5/2026 12:08 AM] يوسف أسعد: import html
 import re
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -58,7 +58,6 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_success = False
     for admin in ADMINS:
         try:
-            # إرسال بطاقة معلومات الطالب
             sent_info = await context.bot.send_message(chat_id=admin, text=text, parse_mode="HTML")
             
             try:
@@ -66,7 +65,6 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as db_err:
                 print(f"⚠️ DB Error (save_message): {db_err}")
 
-            # إرسال نسخة من الملف أو البصمة إذا وجدت
             if has_attachment or not update.message.text:
                 sent_copy = await context.bot.copy_message(
                     chat_id=admin,
@@ -89,7 +87,6 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
-    # التأكد من أن مرسل الرد هو أدمن
     if user.id not in ADMINS and user.id != OWNER_ID:
         return
 
@@ -100,16 +97,13 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     replied_msg = update.message.reply_to_message
     student_id = None
 
-    # 1. البحث في قاعدة البيانات أولاً
     try:
         student_id = database.get_student(replied_msg.message_id)
     except Exception as db_err:
         print(f"⚠️ DB Error (get_student): {db_err}")
 
-    # 2. استخراج الـ ID من نص الرسالة التي تم الرد عليها
     target_text = replied_msg.text or replied_msg.caption or ""
     if not student_id and target_text:
-        # البحث عن أي رقم آيدي مكون من 6 إلى 12 خانة
         match = re.search(r"ID[^\d]*(\d{6,12})", target_text, re.IGNORECASE) or re.search(r"(\d{7,12})", target_text)
         if match:
             student_id = int(match.group(1))
@@ -119,17 +113,13 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-[8/5/2026 12:01 AM] يوسف أسعد: # إرسال الترويسة للطالب
         await context.bot.send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
-        
-        # نسخ الرد (نص، بصمة، أو ملف) إلى الطالب
         await context.bot.copy_message(
             chat_id=student_id,
             from_chat_id=user.id,
             message_id=update.message.message_id
         )
-
-        admin_name = f"@{user.username}" if user.username else user.first_name
+[8/5/2026 12:08 AM] يوسف أسعد: admin_name = f"@{user.username}" if user.username else user.first_name
         try:
             database.answer_ticket(student_id, admin_name)
         except Exception:
@@ -137,4 +127,4 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text("✅ تم إرسال الرد إلى الطالب بنجاح.")
     except Exception as e:
-        await update.message.reply_text(f"❌ فشل إرسال الرد للطالب (قد يكون الطالب قام بحظر البوت): {e}")
+        await update.message.reply_text(f"❌ فشل إرسال الرد للطالب: {e}")
