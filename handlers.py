@@ -30,21 +30,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not user:
+    if not user or user.is_bot:
         return
 
     all_admins = get_all_admins_set()
-    if user.id in all_admins:
-        return
 
-    # حفظ الطالب وإعادة فتح تذكرة جديدة
+    if user.id in all_admins:
+        if update.message and update.message.reply_to_message:
+            await handle_admin_reply(update, context)
+        else:
+            await update.message.reply_text("ℹ️ عزيزي المشرف، للرد على طالب يرجى استخدام ميزة الرد (Reply) على كارت معلومات الطالب.")
+    else:
+        await handle_student_message(update, context)
+
+
+async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    all_admins = get_all_admins_set()
+
     try:
         database.save_student(user.id, user.username, user.first_name)
         database.create_ticket(user.id)
     except Exception as db_err:
-        print(f"⚠️ DB Error (save_student): {db_err}")
+        print(f"⚠️ DB Error (save_student/create_ticket): {db_err}")
 
     student_name = html.escape(user.first_name or "طالب")
     student_username = f"@{user.username}" if user.username else "لا يوجد معرف"
@@ -101,21 +111,13 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ تم استلام رسالتك وسيتم الرد عليك قريبًا.")
 
 
-async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     all_admins = get_all_admins_set()
-
-    if user.id not in all_admins:
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("⚠️ يرجى عمل رد (Reply) على كارت معلومات الطالب.")
-        return
 
     replied_msg = update.message.reply_to_message
     student_id = None
 
-    # استخراج آيدي الطالب
     try:
         student_id = database.get_student(replied_msg.message_id)
     except Exception as db_err:
@@ -128,11 +130,9 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             student_id = int(match.group(1))
 
     if not student_id:
-        await update.message.reply_text("❌ تعذر تحديد ID الطالب.
-        يرجى التأكد من عمل Reply على (بطاقة معلومات الطالب).")
+        await update.message.reply_text("❌ تعذر تحديد ID الطالب. يرجى التأكد من عمل Reply على كارت معلومات الطالب.")
         return
 
-    # 1. فحص القفل: هل رد مشرف آخر مسبقاً؟
     try:
         ticket = database.get_ticket(student_id)
         if ticket and ticket[0] == "answered":
@@ -140,7 +140,7 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             warning_text = (
                 "⚠️ <b>تنبيه: تم الرد على هذه الرسالة مسبقًا!</b>\n"
                 "───────────────────\n"
-                f"👤 <b>المشرف المسؤول:</b> {handled_by}\n"
+                f"👤 <b>المشرف المسؤول:</b> {handled_by}\n\n"
                 "❌ لا يمكنك إرسال رد آخر لهذه التذكرة المغلقة."
             )
             await update.message.reply_text(warning_text, parse_mode="HTML")
@@ -148,15 +148,12 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"⚠️ DB Error (get_ticket): {e}")
 
-    # تجهيز اسم ومعرف المشرف الحالي
     admin_username = f"@{user.username}" if user.username else "لا يوجد معرف"
     admin_display_name = f"{html.escape(user.first_name or 'مشرف')} ({admin_username})"
 
     try:
-        # قفل التذكرة فوراً لمنع الرد المزدوج
         database.answer_ticket(student_id, admin_display_name)
 
-        # إرسال الرد للطالب
         await context.bot.send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
         await context.bot.copy_message(
             chat_id=student_id,
@@ -164,7 +161,6 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_id=update.message.message_id
         )
 
-        # 2. إرسال كارت التقرير لجميع المشرفين بلا استثناء (بمن فيهم المشرف صاحب الرد)
         notice_text = (
             "✅ <b>تم الرد على الطالب بنجاح!</b>\n"
             "───────────────────\n"
