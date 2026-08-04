@@ -1,4 +1,4 @@
-[8/5/2026 12:08 AM] يوسف أسعد: import html
+import html
 import re
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -119,7 +119,7 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from_chat_id=user.id,
             message_id=update.message.message_id
         )
-[8/5/2026 12:08 AM] يوسف أسعد: admin_name = f"@{user.username}" if user.username else user.first_name
+        admin_name = f"@{user.username}" if user.username else user.first_name
         try:
             database.answer_ticket(student_id, admin_name)
         except Exception:
