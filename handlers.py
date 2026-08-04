@@ -5,21 +5,30 @@ from telegram.ext import ContextTypes
 from config import ADMINS, OWNER_ID
 import database
 
-print("HANDLERS FILE LOADED")
+print("HANDLERS FILE LOADED SUCCESSFULLY")
 
 
 def get_all_admins_set():
     admins_set = set()
-    for a in ADMINS:
-        try:
-            admins_set.add(int(a))
-        except (ValueError, TypeError):
-            pass
+    raw_admins = ADMINS if isinstance(ADMINS, list) else [ADMINS]
+    
+    for item in raw_admins:
+        if isinstance(item, str) and "," in item:
+            for sub in item.split(","):
+                if sub.strip().isdigit():
+                    admins_set.add(int(sub.strip()))
+        else:
+            try:
+                admins_set.add(int(item))
+            except (ValueError, TypeError):
+                pass
+
     if OWNER_ID:
         try:
             admins_set.add(int(OWNER_ID))
         except (ValueError, TypeError):
             pass
+
     return admins_set
 
 
@@ -31,14 +40,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.effective_user:
+        return
+
     user = update.effective_user
-    if not user or user.is_bot:
+    if user.is_bot:
         return
 
     all_admins = get_all_admins_set()
 
+    # التوجيه الذكي: إذا كان المرسل مشرفاً وقام بعمل Reply
     if user.id in all_admins:
-        if update.message and update.message.reply_to_message:
+        if update.message.reply_to_message:
             await handle_admin_reply(update, context)
         else:
             await update.message.reply_text("ℹ️ عزيزي المشرف، للرد على طالب يرجى استخدام ميزة الرد (Reply) على كارت معلومات الطالب.")
@@ -54,14 +67,13 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
         database.save_student(user.id, user.username, user.first_name)
         database.create_ticket(user.id)
     except Exception as db_err:
-        print(f"⚠️ DB Error (save_student/create_ticket): {db_err}")
+        print(f"⚠️ DB Error (student_save): {db_err}")
 
     student_name = html.escape(user.first_name or "طالب")
     student_username = f"@{user.username}" if user.username else "لا يوجد معرف"
 
-    text_content = update.message.text or update.message.caption
-    raw_text = text_content if text_content else "[ملف / وسائط / بصمة صوتية]"
-    msg_text = html.escape(raw_text)
+    text_content = update.message.text or update.message.caption or "[وسائط / ملف / بصمة]"
+    msg_text = html.escape(text_content)
 
     text = (
         "📩 <b>رسالة جديدة من طالب:</b>\n"
@@ -73,7 +85,7 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
         f"💬 <b>الرسالة / الوصف:</b>\n{msg_text}"
     )
 
-    has_attachment = bool(
+    has_media = bool(
         update.message.document or 
         update.message.photo or 
         update.message.voice or 
@@ -82,39 +94,31 @@ async def handle_student_message(update: Update, context: ContextTypes.DEFAULT_T
         update.message.sticker
     )
 
-    sent_success = False
-    for admin in all_admins:
+    sent_count = 0
+    for admin_id in all_admins:
         try:
-            sent_info = await context.bot.send_message(chat_id=admin, text=text, parse_mode="HTML")
-            
-            try:
-                database.save_message(sent_info.message_id, admin, user.id)
-            except Exception as db_err:
-                print(f"⚠️ DB Error (save_message): {db_err}")
+            sent_info = await context.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+            database.save_message(sent_info.message_id, admin_id, user.id)
 
-            if has_attachment or not update.message.text:
-                sent_copy = await context.bot.copy_message(
-                    chat_id=admin,
+            if has_media:
+                copied = await context.bot.copy_message(
+                    chat_id=admin_id,
                     from_chat_id=user.id,
                     message_id=update.message.message_id
                 )
-                try:
-                    database.save_message(sent_copy.message_id, admin, user.id)
-                except Exception:
-                    pass
+                database.save_message(copied.message_id, admin_id, user.id)
 
-            sent_success = True
+            sent_count += 1
         except Exception as e:
-            print(f"❌ Error sending to admin {admin}: {e}")
+            print(f"❌ فشل إرسال رسالة الطالب للمشرف {admin_id}: {e}")
 
-    if sent_success:
+    if sent_count > 0:
         await update.message.reply_text("✅ تم استلام رسالتك وسيتم الرد عليك قريبًا.")
 
 
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     all_admins = get_all_admins_set()
-
     replied_msg = update.message.reply_to_message
     student_id = None
 
@@ -133,6 +137,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ تعذر تحديد ID الطالب. يرجى التأكد من عمل Reply على كارت معلومات الطالب.")
         return
 
+    # فحص القفل لمنع الرد المزدوج
     try:
         ticket = database.get_ticket(student_id)
         if ticket and ticket[0] == "answered":
@@ -152,14 +157,14 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     admin_display_name = f"{html.escape(user.first_name or 'مشرف')} ({admin_username})"
 
     try:
-        database.answer_ticket(student_id, admin_display_name)
-
         await context.bot.send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
         await context.bot.copy_message(
             chat_id=student_id,
             from_chat_id=user.id,
             message_id=update.message.message_id
         )
+
+        database.answer_ticket(student_id, admin_display_name)
 
         notice_text = (
             "✅ <b>تم الرد على الطالب بنجاح!</b>\n"
@@ -180,7 +185,12 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     message_id=update.message.message_id
                 )
             except Exception as e:
-                print(f"❌ فشل الإرسال للمشرف {admin_id}: {e}")
+                print(f"❌ فشل إرسال إشعار الرد للمشرف {admin_id}: {e}")
 
     except Exception as e:
         await update.message.reply_text(f"❌ فشل إرسال الرد للطالب: {e}")
+
+
+# أسماء مستعارة لتفادي أخطاء الاستدعاء القديمة
+admin_reply = handle_admin_reply
+student_message = handle_student_message

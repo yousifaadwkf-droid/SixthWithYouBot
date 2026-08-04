@@ -1,31 +1,23 @@
 import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-import config
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from config import TOKEN
 import handlers
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
 
 def main():
-    if not config.TOKEN:
-        print("❌ Error: TOKEN is missing!")
-        return
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    app = Application.builder().token(config.TOKEN).build()
-
+    # تسجيل الأوامر والرسائل عبر الموجه الرئيسي
     app.add_handler(CommandHandler("start", handlers.start))
-    
-    # معالج الردود (يستقبل أي Reply ويتحقق من صلاحية الأدمن داخلياً)
-    app.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, handlers.admin_reply))
-    
-    # معالج رسائل الطلاب
-    app.add_handler(MessageHandler(~filters.COMMAND & filters.ALL, handlers.student_message))
+    app.add_handler(MessageHandler(~filters.COMMAND, handlers.route_message))
 
-    print(f"✅ {config.BOT_NAME} is running successfully...")
-    app.run_polling(drop_pending_updates=True)
+    print("🤖 مساعد تجي🤍 يعمل بنجاح...")
+    app.run_polling()
 
 
 if __name__ == "__main__":
