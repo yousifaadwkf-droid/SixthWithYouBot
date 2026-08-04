@@ -25,10 +25,10 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # تجهيز المعرف بشكل آمن
     student_username = f"@{user.username}" if user.username else "لا يوجد معرف"
+    msg_text = update.message.text if update.message.text else "[وسائط / بصمة صوتية]"
 
-    msg_text = update.message.text if update.message.text else "[وسائط/ملف]"
     text = (
-        "📩 **رسالة طالب جديدة**\n\n"
+        "📩 **رسالة جديدة من طالب:**\n"
         f"👤 الاسم: {user.first_name}\n"
         f"🏷️ المعرف: {student_username}\n"
         f"🆔 ID: `{user.id}`\n\n"
@@ -37,8 +37,19 @@ async def student_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for admin in ADMINS:
         try:
-            sent = await context.bot.send_message(chat_id=admin, text=text, parse_mode="Markdown")
-            database.save_message(sent.message_id, admin, user.id)
+            # إرسال تفاصيل الطالب إلى المشرف
+            sent_info = await context.bot.send_message(chat_id=admin, text=text, parse_mode="Markdown")
+            database.save_message(sent_info.message_id, admin, user.id)
+
+            # إذا كانت رسالة الطالب بصمة صوتية أو صورة، يتم نسخها وإرسالها للمشرف أيضاً
+            if not update.message.text:
+                sent_copy = await context.bot.copy_message(
+                    chat_id=admin,
+                    from_chat_id=user.id,
+                    message_id=update.message.message_id
+                )
+                database.save_message(sent_copy.message_id, admin, user.id)
+
         except Exception as e:
             print(f"Failed to send to admin {admin}: {e}")
 
@@ -51,61 +62,29 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id not in ADMINS and user.id != OWNER_ID:
         return
 
+    # التأكد من أن المشرف قام بعمل Reply على رسالة الطالب
     if not update.message.reply_to_message:
-        await update.message.reply_text("⚠️ يجب الرد على رسالة الطالب.")
         return
 
-    message_id = update.message.reply_to_message.message_id
-    student_id = database.get_student(message_id)
+    replied_msg_id = update.message.reply_to_message.message_id
+    student_id = database.get_student(replied_msg_id)
 
-    if student_id is None:
-        await update.message.reply_text("❌ لم أجد بيانات هذه الرسالة.")
+    if not student_id:
+        await update.message.reply_text("❌ تعذر العثور على بيانات هذا الطالب.")
         return
-
-    status = database.ticket_status(student_id)
-    if status is None:
-        await update.message.reply_text("❌ لم أجد بيانات السؤال.")
-        return
-
-    answered, answered_by = status
-
-    if answered:
-        await update.message.reply_text(
-            f"⚠️ تمت الإجابة على هذا السؤال بواسطة {answered_by}"
-        )
-        return
-
-    admin_name = f"@{user.username}" if user.username else user.first_name
-    reply_content = update.message.text if update.message.text else "تم إرسال رد."
-    
-    await context.bot.send_message(
-        chat_id=student_id,
-        text=f"💬 **رد من مساعد تجي🤍**\n\n{reply_content}"
-    )
-
-    database.answer_ticket(student_id, admin_name)
-
-    for admin_message_id, admin_id in database.get_admin_messages(student_id):
-        if admin_id != user.id:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=f"✅ تمت الإجابة بواسطة {admin_name}",
-                    reply_to_message_id=admin_message_id
-                )
-            except Exception:
-                pass
 
     try:
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=(
-                "📋 **تم الرد على الطالب**\n\n"
-                f"👨‍💼 المشرف: {admin_name}\n\n"
-                f"💬 الرد:\n{reply_content}"
-            )
+        # إرسال إشعار للطالب ثم نسخ الرد (سواء كان نصًا أو بصمة صوتية أو ملفًا)
+        await context.bot.send_message(chat_id=student_id, text="💬 **رد من مساعد تجي🤍:**", parse_mode="Markdown")
+        await context.bot.copy_message(
+            chat_id=student_id,
+            from_chat_id=user.id,
+            message_id=update.message.message_id
         )
-    except Exception:
-        pass
 
-    await update.message.reply_text("✅ تم إرسال الرد للطالب.")
+        admin_name = f"@{user.username}" if user.username else user.first_name
+        database.answer_ticket(student_id, admin_name)
+
+        await update.message.reply_text("✅ تم إرسال الرد/البصمة الصوتية إلى الطالب بنجاح.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ فشل إرسال الرد للطالب: {e}")
