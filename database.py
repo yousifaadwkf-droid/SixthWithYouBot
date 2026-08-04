@@ -63,9 +63,18 @@ def get_student(message_id):
 def create_ticket(student_id):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("INSERT OR REPLACE INTO tickets (student_id, status) VALUES (?, 'open')", (student_id,))
+    cur.execute("INSERT OR REPLACE INTO tickets (student_id, status, handled_by) VALUES (?, 'open', NULL)", (student_id,))
     conn.commit()
     conn.close()
+
+
+def get_ticket(student_id):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT status, handled_by FROM tickets WHERE student_id = ?", (student_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row  # يعيد (status, handled_by)
 
 
 def answer_ticket(student_id, admin_name):
