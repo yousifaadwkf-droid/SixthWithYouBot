@@ -154,7 +154,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     admin_display_name = f"{html.escape(user.first_name or 'مشرف')} ({admin_username})"
 
     try:
-        # إرسال الرد للطالب مربوطاً برسالته الأصلية
+        # 1. إرسال الرد للطالب مربوطاً برسالته الأصلية
         try:
             if student_msg_id:
                 await context.bot.copy_message(
@@ -180,12 +180,28 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "👇 <b>محتوى الرد المرسل:</b>"
         )
 
+        # 2. بث إشعار الإنجاز لكل المشرفين مقتبساً بكارت الطالب الخاص بكل مشرف
         for admin_id in all_admins:
             try:
-                # ربط التأكيد والرد بـ Reply مباشر للكارت الأصلي لدى المشرف الذي رد
-                reply_id = replied_msg.message_id if admin_id == user.id else None
-                
-                await context.bot.send_message(chat_id=admin_id, text=notice_text, parse_mode="HTML", reply_to_message_id=reply_id)
+                # البحث عن رقم الكارت في شات هذا المشرف بالذات
+                target_reply_id = database.get_admin_msg_for_student_msg(student_msg_id, admin_id)
+                if not target_reply_id:
+                    target_reply_id = database.get_latest_admin_msg_for_student(student_id, admin_id)
+
+                try:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=notice_text,
+                        parse_mode="HTML",
+                        reply_to_message_id=target_reply_id
+                    )
+                except Exception:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=notice_text,
+                        parse_mode="HTML"
+                    )
+
                 await context.bot.copy_message(
                     chat_id=admin_id,
                     from_chat_id=user.id,

@@ -73,6 +73,36 @@ def get_message_info(admin_msg_id):
     return None, None
 
 
+def get_admin_msg_for_student_msg(student_msg_id, admin_id):
+    """جلب رقم الرسالة الخاص بالمشرف المحدد بناءً على رسالة الطالب"""
+    if not student_msg_id:
+        return None
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT message_id FROM messages WHERE student_msg_id = ? AND admin_id = ?", (int(student_msg_id), int(admin_id)))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        conn.close()
+        return None
+
+
+def get_latest_admin_msg_for_student(student_id, admin_id):
+    """جلب آخر كارت طالب وصل لهذا المشرف بالتحديد"""
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT message_id FROM messages WHERE student_id = ? AND admin_id = ? ORDER BY message_id DESC LIMIT 1", (int(student_id), int(admin_id)))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        conn.close()
+        return None
+
+
 def get_student(admin_msg_id):
     student_id, _ = get_message_info(admin_msg_id)
     return student_id
