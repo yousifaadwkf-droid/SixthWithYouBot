@@ -17,7 +17,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS messages (
             message_id INTEGER PRIMARY KEY,
             admin_id INTEGER,
-            student_id INTEGER
+            student_id INTEGER,
+            student_msg_id INTEGER
         )
     """)
     cur.execute("""
@@ -43,25 +44,41 @@ def save_student(user_id, username, first_name):
     conn.close()
 
 
-def save_message(admin_msg_id, admin_id, student_id):
+def save_message(admin_msg_id, admin_id, student_id, student_msg_id=None):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("INSERT OR REPLACE INTO messages VALUES (?, ?, ?)", (int(admin_msg_id), int(admin_id), int(student_id)))
+    try:
+        cur.execute("INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?)", (int(admin_msg_id), int(admin_id), int(student_id), int(student_msg_id) if student_msg_id else None))
+    except sqlite3.OperationalError:
+        cur.execute("INSERT OR REPLACE INTO messages (message_id, admin_id, student_id) VALUES (?, ?, ?)", (int(admin_msg_id), int(admin_id), int(student_id)))
     conn.commit()
     conn.close()
 
 
-def get_student(admin_msg_id):
+def get_message_info(admin_msg_id):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT student_id FROM messages WHERE message_id = ?", (int(admin_msg_id),))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else None
+    try:
+        cur.execute("SELECT student_id, student_msg_id FROM messages WHERE message_id = ?", (int(admin_msg_id),))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return row[0], row[1]
+    except Exception:
+        cur.execute("SELECT student_id FROM messages WHERE message_id = ?", (int(admin_msg_id),))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return row[0], None
+    return None, None
+
+
+def get_student(admin_msg_id):
+    student_id, _ = get_message_info(admin_msg_id)
+    return student_id
 
 
 def create_ticket(student_id):
-    """إعادة فتح التذكرة وإلغاء حجز المشرف السابق عند وصول رسالة جديدة من الطالب"""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
@@ -86,7 +103,6 @@ def get_ticket(student_id):
 
 
 def assign_and_answer_ticket(student_id, admin_id, admin_name):
-    """حجز التذكرة للمشرف وإبقاء حظر بقية المشرفين"""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute("""
