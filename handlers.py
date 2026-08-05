@@ -49,7 +49,6 @@ async def route_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     all_admins = get_all_admins_set()
 
-    # التوجيه الذكي: إذا كان المرسل مشرفاً وقام بعمل Reply
     if user.id in all_admins:
         if update.message.reply_to_message:
             await handle_admin_reply(update, context)
@@ -137,19 +136,20 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ تعذر تحديد ID الطالب. يرجى التأكد من عمل Reply على كارت معلومات الطالب.")
         return
 
-    # فحص القفل لمنع الرد المزدوج
+    # فحص ملكية التذكرة: منع المشرفين الآخرين فقط، والسماح للمشرف الحالي بإرسال عدة ردود
     try:
         ticket = database.get_ticket(student_id)
-        if ticket and ticket[0] == "answered":
-            handled_by = ticket[1] or "مشرف آخر"
-            warning_text = (
-                "⚠️ <b>تنبيه: تم الرد على هذه الرسالة مسبقًا!</b>\n"
-                "───────────────────\n"
-                f"👤 <b>المشرف المسؤول:</b> {handled_by}\n\n"
-                "❌ لا يمكنك إرسال رد آخر لهذه التذكرة المغلقة."
-            )
-            await update.message.reply_text(warning_text, parse_mode="HTML")
-            return
+        if ticket:
+            status, handled_by_id, handled_by_name = ticket
+            if handled_by_id and handled_by_id != user.id:
+                warning_text = (
+                    "⚠️ <b>تنبيه: التذكرة بحوزة مشرف آخر!</b>\n"
+                    "───────────────────\n"
+                    f"👤 <b>المشرف المسؤول:</b> {handled_by_name}\n\n"
+                    "❌ لا يمكنك الرد لأن هذا المشرف متكفل بمتابعة هذا الطالب حالياً."
+                )
+                await update.message.reply_text(warning_text, parse_mode="HTML")
+                return
     except Exception as e:
         print(f"⚠️ DB Error (get_ticket): {e}")
 
@@ -157,6 +157,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     admin_display_name = f"{html.escape(user.first_name or 'مشرف')} ({admin_username})"
 
     try:
+        # إرسال الرد للطالب
         await context.bot.send_message(chat_id=student_id, text="💬 <b>رد من مساعد تجي🤍:</b>", parse_mode="HTML")
         await context.bot.copy_message(
             chat_id=student_id,
@@ -164,7 +165,8 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
             message_id=update.message.message_id
         )
 
-        database.answer_ticket(student_id, admin_display_name)
+        # تثبيت أو تحديث حجز التذكرة للمشرف الحالي
+        database.assign_and_answer_ticket(student_id, user.id, admin_display_name)
 
         notice_text = (
             "✅ <b>تم الرد على الطالب بنجاح!</b>\n"
@@ -191,6 +193,5 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ فشل إرسال الرد للطالب: {e}")
 
 
-# أسماء مستعارة لتفادي أخطاء الاستدعاء القديمة
 admin_reply = handle_admin_reply
 student_message = handle_student_message

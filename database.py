@@ -24,7 +24,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS tickets (
             student_id INTEGER PRIMARY KEY,
             status TEXT,
-            handled_by TEXT
+            handled_by_id INTEGER,
+            handled_by_name TEXT
         )
     """)
     conn.commit()
@@ -42,28 +43,35 @@ def save_student(user_id, username, first_name):
     conn.close()
 
 
-def save_message(message_id, admin_id, student_id):
+def save_message(admin_msg_id, admin_id, student_id):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("INSERT OR REPLACE INTO messages VALUES (?, ?, ?)", (int(message_id), int(admin_id), int(student_id)))
+    cur.execute("INSERT OR REPLACE INTO messages VALUES (?, ?, ?)", (int(admin_msg_id), int(admin_id), int(student_id)))
     conn.commit()
     conn.close()
 
 
-def get_student(message_id):
+def get_student(admin_msg_id):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT student_id FROM messages WHERE message_id = ?", (int(message_id),))
+    cur.execute("SELECT student_id FROM messages WHERE message_id = ?", (int(admin_msg_id),))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
 
 
 def create_ticket(student_id):
+    """إعادة فتح التذكرة وإلغاء حجز المشرف السابق عند وصول رسالة جديدة من الطالب"""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    # إعادة فتح تذكرة جديدة عند وصول سؤال جديد من الطالب
-    cur.execute("INSERT OR REPLACE INTO tickets (student_id, status, handled_by) VALUES (?, 'open', NULL)", (int(student_id),))
+    cur.execute("""
+        INSERT INTO tickets (student_id, status, handled_by_id, handled_by_name)
+        VALUES (?, 'open', NULL, NULL)
+        ON CONFLICT(student_id) DO UPDATE SET
+        status = 'open',
+        handled_by_id = NULL,
+        handled_by_name = NULL
+    """, (int(student_id),))
     conn.commit()
     conn.close()
 
@@ -71,16 +79,20 @@ def create_ticket(student_id):
 def get_ticket(student_id):
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute("SELECT status, handled_by FROM tickets WHERE student_id = ?", (int(student_id),))
+    cur.execute("SELECT status, handled_by_id, handled_by_name FROM tickets WHERE student_id = ?", (int(student_id),))
     row = cur.fetchone()
     conn.close()
     return row
 
 
-def answer_ticket(student_id, admin_info):
+def assign_and_answer_ticket(student_id, admin_id, admin_name):
+    """حجز التذكرة للمشرف وإبقاء حظر بقية المشرفين"""
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    # إغلاق التذكرة وتسجيل المشرف الذي قام بالرد
-    cur.execute("INSERT OR REPLACE INTO tickets (student_id, status, handled_by) VALUES (?, 'answered', ?)", (int(student_id), str(admin_info)))
+    cur.execute("""
+        UPDATE tickets 
+        SET status = 'answered', handled_by_id = ?, handled_by_name = ?
+        WHERE student_id = ?
+    """, (int(admin_id), str(admin_name), int(student_id)))
     conn.commit()
     conn.close()
